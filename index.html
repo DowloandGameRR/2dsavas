@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>2D Online Savaş Oyunu</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
-    <!-- Firebase SDK v9+ (Modüler) -->
     <script type="module">
         // ============================================
         // 1. FIREBASE KONFİGÜRASYONU
@@ -111,7 +110,6 @@
 </head>
 <body style="margin: 0; padding: 0; background: #1a1a2e; overflow: hidden; font-family: 'Segoe UI', sans-serif;">
     
-    <!-- Giriş Ekranı -->
     <div id="login-screen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
          background: rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; text-align: center; color: white; z-index: 1000;">
         <h1>⚔️ 2D Savaş Arenası</h1>
@@ -131,10 +129,8 @@
         </div>
     </div>
 
-    <!-- Oyun Konteyneri -->
     <div id="game-container" style="display: none;"></div>
 
-    <!-- UI Overlay -->
     <div id="ui-overlay" style="display: none; position: absolute; top: 10px; left: 10px; color: white; z-index: 100; pointer-events: none;">
         <div style="background: rgba(0,0,0,0.7); padding: 15px; border-radius: 10px;">
             <div>❤️ Can: <span id="hp-display">100</span></div>
@@ -218,6 +214,7 @@
             let playersRef; // Tüm oyuncular referansı
             let bulletsRef; // Mermiler referansı
             let lastFired = 0; // Son ateş zamanı
+            let minimapCamera; // Mini Harita Kamerası 🟢 EKLEDİK
             const FIRE_RATE = 200; // Mermi atış hızı (ms)
             const PLAYER_SPEED = 300; // Oyuncu hızı
             const BULLET_SPEED = 800; // Mermi hızı
@@ -279,6 +276,21 @@
                 // Kamera ayarları
                 scene.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
+                // ============================================
+                // MİNİ MAP (MİNİ HARİTA) AYARLARI 🟢 EKLEDİK
+                // ============================================
+                // Sağ üst köşeye 150x150 genişliğinde minik bir kamera ekliyoruz
+                minimapCamera = scene.cameras.add(window.innerWidth - 170, 20, 150, 150).setZoom(0.07).setName('minimap');
+                minimapCamera.setBackgroundColor('#1a1a2e');
+                minimapCamera.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+                
+                // Mini map kenarlığı çizelim
+                const minimapBorder = scene.add.graphics().setScrollFactor(0).setDepth(200);
+                minimapBorder.lineStyle(3, 0xffffff, 0.8);
+                minimapBorder.strokeRect(window.innerWidth - 172, 18, 154, 154);
+                // Kenarlığın mini map kamerasında görünmesini engelliyoruz (Sadece ana ekranda dursun)
+                minimapCamera.ignore(minimapBorder);
+
                 // Input ayarları
                 cursors = scene.input.keyboard.createCursorKeys();
                 wasd = scene.input.keyboard.addKeys({
@@ -321,6 +333,7 @@
 
                 // Kamera takip
                 scene.cameras.main.startFollow(player, true, 0.1, 0.1);
+                minimapCamera.startFollow(player, true, 0.1, 0.1); // 🟢 Mini map de bizi takip etsin
 
                 // Oyuncu adı etiketi
                 player.nameText = scene.add.text(startX, startY - 30, playerName, {
@@ -346,11 +359,10 @@
                 });
 
                 // 🔴 ÖNEMLİ: onDisconnect ile otomatik temizlik
-                // Tarayıcı kapandığında/sekme kapatıldığında oyuncuyu sil
                 window.gameOnDisconnect(playerRef).remove();
 
                 // ============================================
-                // 7. DİĞER OYUNCULARI DİNLE (REALTIME)
+                // 7. DİĞER OYUNCULARI DİNLE (REALTIME) DÜZELTİLDİ 🛠️
                 // ============================================
 
                 window.gameOnValue(playersRef, (snapshot) => {
@@ -361,7 +373,6 @@
                     Object.keys(playersData).forEach((uid) => {
                         // Kendimizi atla
                         if (uid === userId) {
-                            // HP senkronizasyonu (hasar aldığında)
                             const data = playersData[uid];
                             if (data.hp !== player.hp && data.hp < player.hp) {
                                 player.hp = data.hp;
@@ -377,54 +388,64 @@
 
                         const data = playersData[uid];
 
-                        // Yeni oyuncu mu?
+                        // Yeni oyuncu mu? (Eğer sahnede yoksa oluştur) Düzeltildi 🛠️
                         if (!otherPlayers[uid]) {
-                            // Yeni oyuncu sprite'ı oluştur
+                            // scene referansının doğru çalıştığından emin oluyoruz
                             const otherPlayer = scene.physics.add.sprite(data.x, data.y, 'enemy');
                             otherPlayer.setDepth(10);
+                            
                             otherPlayer.nameText = scene.add.text(data.x, data.y - 30, data.name || "Oyuncu", {
                                 fontSize: '14px',
                                 fill: '#ff6b6b',
                                 stroke: '#000000',
                                 strokeThickness: 3
                             }).setOrigin(0.5).setDepth(11);
+                            
                             otherPlayer.hpBar = scene.add.graphics().setDepth(11);
                             otherPlayer.hp = data.hp;
+                            
+                            // İlk koordinat atamalarını yapıyoruz ki LERP sapıtmasın
+                            otherPlayer.x = data.x;
+                            otherPlayer.y = data.y;
+                            otherPlayer.targetX = data.x;
+                            otherPlayer.targetY = data.y;
+                            otherPlayer.targetAngle = data.angle || 0;
+
                             otherPlayers[uid] = otherPlayer;
+                        } else {
+                            // Mevcut oyuncuyu güncelle (LERP hedefleri)
+                            const otherPlayer = otherPlayers[uid];
+                            otherPlayer.targetX = data.x;
+                            otherPlayer.targetY = data.y;
+                            otherPlayer.targetAngle = data.angle;
+                            otherPlayer.hp = data.hp;
                         }
 
-                        // Mevcut oyuncuyu güncelle (LERP ile yumuşak geçiş)
-                        const otherPlayer = otherPlayers[uid];
-                        
-                        // 🟢 LAG YÖNETİMİ: Doğrudan atama yerine interpolasyon
-                        // Hedef pozisyonu kaydet, update() içinde yumuşak geçiş yap
-                        otherPlayer.targetX = data.x;
-                        otherPlayer.targetY = data.y;
-                        otherPlayer.targetAngle = data.angle;
-                        otherPlayer.hp = data.hp;
-
-                        // Can barını güncelle
-                        updateHpBar(otherPlayer);
-
-                        // Ölen oyuncuyu gizle
-                        if (data.hp <= 0) {
-                            otherPlayer.setVisible(false);
-                            otherPlayer.nameText.setVisible(false);
-                            otherPlayer.hpBar.setVisible(false);
-                        } else {
-                            otherPlayer.setVisible(true);
-                            otherPlayer.nameText.setVisible(true);
-                            otherPlayer.hpBar.setVisible(true);
+                        // Can barını ve görünürlüğü güncelle
+                        const op = otherPlayers[uid];
+                        if (op) {
+                            updateHpBar(op);
+                            if (data.hp <= 0) {
+                                op.setVisible(false);
+                                op.nameText.setVisible(false);
+                                op.hpBar.setVisible(false);
+                            } else {
+                                op.setVisible(true);
+                                op.nameText.setVisible(true);
+                                op.hpBar.setVisible(true);
+                            }
                         }
                     });
 
                     // Ayrılan oyuncuları temizle
                     Object.keys(otherPlayers).forEach((uid) => {
                         if (!playersData[uid]) {
-                            otherPlayers[uid].destroy();
-                            otherPlayers[uid].nameText.destroy();
-                            otherPlayers[uid].hpBar.destroy();
-                            delete otherPlayers[uid];
+                            if (otherPlayers[uid]) {
+                                otherPlayers[uid].destroy();
+                                if (otherPlayers[uid].nameText) otherPlayers[uid].nameText.destroy();
+                                if (otherPlayers[uid].hpBar) otherPlayers[uid].hpBar.destroy();
+                                delete otherPlayers[uid];
+                            }
                         }
                     });
                 });
@@ -437,30 +458,24 @@
                     const bulletsData = snapshot.val();
                     if (!bulletsData) return;
 
-                    // Mermi senkronizasyonu - sadece diğer oyuncuların mermileri
                     Object.keys(bulletsData).forEach((bulletId) => {
                         const data = bulletsData[bulletId];
                         
-                        // Kendi mermilerimizi atla (zaten yerelde oluşturduk)
                         if (data.owner === userId) return;
 
-                        // Mermi çok eski mi? (5 saniyeden eski)
                         if (Date.now() - data.timestamp > 5000) {
                             window.gameRemove(window.gameRef(window.gameDB, `bullets/${bulletId}`));
                             return;
                         }
 
-                        // Yeni mermi oluştur (diğer oyuncudan gelen)
                         if (!scene.children.getByName(bulletId)) {
                             const bullet = scene.physics.add.image(data.x, data.y, 'bullet');
                             bullet.setName(bulletId);
                             bullet.setDepth(5);
                             
-                            // Hız vektörü
                             const velocity = scene.physics.velocityFromRotation(data.angle, BULLET_SPEED);
                             bullet.setVelocity(velocity.x, velocity.y);
                             
-                            // 3 saniye sonra mermiyi sil
                             scene.time.delayedCall(3000, () => {
                                 if (bullet.active) {
                                     bullet.destroy();
@@ -474,9 +489,7 @@
                 // 9. ÇARPIŞMA KONTROLLERİ
                 // ============================================
 
-                // Mermi - Diğer Oyuncu çarpışması
                 scene.physics.add.overlap(bullets, player, (bullet, targetPlayer) => {
-                    // Sadece başka oyuncunun mermisi bize zarar versin
                     if (bullet.owner && bullet.owner !== userId) {
                         bullet.destroy();
                         takeDamage(10, bullet.owner);
@@ -501,13 +514,11 @@
                 let velocityX = 0;
                 let velocityY = 0;
 
-                // Yön tuşları veya WASD
                 if (cursors.left.isDown || wasd.left.isDown) velocityX = -PLAYER_SPEED;
                 if (cursors.right.isDown || wasd.right.isDown) velocityX = PLAYER_SPEED;
                 if (cursors.up.isDown || wasd.up.isDown) velocityY = -PLAYER_SPEED;
                 if (cursors.down.isDown || wasd.down.isDown) velocityY = PLAYER_SPEED;
 
-                // Çapraz hareket hızını normalize et
                 if (velocityX !== 0 && velocityY !== 0) {
                     velocityX *= 0.707;
                     velocityY *= 0.707;
@@ -515,22 +526,18 @@
 
                 player.setVelocity(velocityX, velocityY);
 
-                // Fareye doğru dön
                 const angle = Phaser.Math.Angle.Between(
                     player.x, player.y,
                     mousePointer.worldX, mousePointer.worldY
                 );
                 player.setRotation(angle);
 
-                // İsim ve can barını takip et
                 player.nameText.setPosition(player.x, player.y - 30);
                 updateHpBar(player);
 
                 // ============================================
                 // 11. FIREBASE'E POZİSYON GÖNDER (THROTTLE)
                 // ============================================
-                
-                // 🟢 LAG YÖNETİMİ: Her frame gönderme, 50ms'de bir gönder
                 if (!player.lastUpdate || time - player.lastUpdate > 50) {
                     window.gameUpdate(playerRef, {
                         x: Math.round(player.x),
@@ -549,13 +556,10 @@
                 // ============================================
 
                 Object.values(otherPlayers).forEach((other) => {
-                    if (other.targetX !== undefined && other.hp > 0) {
-                        // Linear Interpolation (Lerp) ile yumuşak geçiş
-                        // 0.2 faktörü: %20'sini hedefe doğru hareket ettir
+                    if (other && other.targetX !== undefined && other.hp > 0) {
                         other.x += (other.targetX - other.x) * 0.2;
                         other.y += (other.targetY - other.y) * 0.2;
                         
-                        // Açıyı yumuşak güncelle
                         if (other.targetAngle !== undefined) {
                             other.rotation = Phaser.Math.Angle.RotateTo(
                                 other.rotation, 
@@ -564,7 +568,6 @@
                             );
                         }
 
-                        // İsim ve can barını takip et
                         other.nameText.setPosition(other.x, other.y - 30);
                         updateHpBar(other);
                     }
@@ -576,7 +579,6 @@
 
                 bullets.children.each((bullet) => {
                     if (bullet.active) {
-                        // Dünya sınırları dışına çıkan mermileri sil
                         if (bullet.x < 0 || bullet.x > WORLD_WIDTH || 
                             bullet.y < 0 || bullet.y > WORLD_HEIGHT) {
                             bullet.destroy();
@@ -594,7 +596,6 @@
                 if (now - lastFired < FIRE_RATE) return;
                 lastFired = now;
 
-                // Mermi oluştur
                 const bullet = bullets.get(player.x, player.y, 'bullet');
                 if (!bullet) return;
 
@@ -602,7 +603,6 @@
                 bullet.setVisible(true);
                 bullet.owner = userId;
 
-                // Fareye doğru ateş et
                 const angle = Phaser.Math.Angle.Between(
                     player.x, player.y,
                     pointer.worldX, pointer.worldY
@@ -612,7 +612,6 @@
                 bullet.setVelocity(velocity.x, velocity.y);
                 bullet.setRotation(angle);
 
-                // Firebase'e mermi bilgisi gönder (diğer oyuncular görsün)
                 const bulletId = `bullet_${userId}_${now}`;
                 window.gameSet(window.gameRef(window.gameDB, `bullets/${bulletId}`), {
                     x: Math.round(player.x),
@@ -622,7 +621,6 @@
                     timestamp: now
                 });
 
-                // 3 saniye sonra mermiyi veritabanından sil
                 setTimeout(() => {
                     window.gameRemove(window.gameRef(window.gameDB, `bullets/${bulletId}`));
                 }, 3000);
@@ -635,25 +633,21 @@
                 updateHpBar(player);
                 document.getElementById('hp-display').textContent = player.hp;
 
-                // Firebase'e hasar bildir
                 window.gameUpdate(playerRef, { hp: player.hp });
 
-                // Ekran sarsıntısı efekti
-                scene.cameras.main.shake(200, 0.01);
+                game.scene.scenes[0].cameras.main.shake(200, 0.01);
 
-                // Kan efekti (kırmızı overlay)
-                const damageOverlay = scene.add.rectangle(
-                    scene.cameras.main.centerX, 
-                    scene.cameras.main.centerY,
-                    scene.cameras.main.width,
-                    scene.cameras.main.height,
+                const damageOverlay = game.scene.scenes[0].add.rectangle(
+                    game.scene.scenes[0].cameras.main.centerX, 
+                    game.scene.scenes[0].cameras.main.centerY,
+                    game.scene.scenes[0].cameras.main.width,
+                    game.scene.scenes[0].cameras.main.height,
                     0xff0000,
                     0.3
                 ).setScrollFactor(0).setDepth(100);
                 
-                scene.time.delayedCall(100, () => damageOverlay.destroy());
+                game.scene.scenes[0].time.delayedCall(100, () => damageOverlay.destroy());
 
-                // Ölüm kontrolü
                 if (player.hp <= 0) {
                     die();
                 }
@@ -665,19 +659,16 @@
                 player.hpBar.setVisible(false);
                 player.setVelocity(0, 0);
 
-                // Firebase'e ölüm bildir
                 window.gameUpdate(playerRef, { hp: 0 });
 
-                // Ölüm mesajı
-                const deathText = scene.add.text(
-                    scene.cameras.main.centerX,
-                    scene.cameras.main.centerY,
+                const deathText = game.scene.scenes[0].add.text(
+                    game.scene.scenes[0].cameras.main.centerX,
+                    game.scene.scenes[0].cameras.main.centerY,
                     'ÖLDÜN! Yeniden doğuyorsun...',
                     { fontSize: '32px', fill: '#e74c3c', stroke: '#000', strokeThickness: 4 }
                 ).setOrigin(0.5).setScrollFactor(0).setDepth(100);
 
-                // Yeniden doğuş
-                scene.time.delayedCall(RESPAWN_TIME, () => {
+                game.scene.scenes[0].time.delayedCall(RESPAWN_TIME, () => {
                     respawn();
                     deathText.destroy();
                 });
@@ -696,7 +687,6 @@
                 updateHpBar(player);
                 document.getElementById('hp-display').textContent = 100;
 
-                // Firebase'e yeniden doğuş bildir
                 window.gameUpdate(playerRef, {
                     x: newX,
                     y: newY,
@@ -709,11 +699,9 @@
                 
                 entity.hpBar.clear();
                 
-                // Arka plan (gri)
                 entity.hpBar.fillStyle(0x000000, 0.5);
                 entity.hpBar.fillRect(entity.x - 20, entity.y - 50, 40, 6);
                 
-                // Can barı (yeşil -> kırmızı)
                 const hpPercent = Math.max(0, entity.hp / 100);
                 const color = hpPercent > 0.5 ? 0x2ecc71 : (hpPercent > 0.25 ? 0xf1c40f : 0xe74c3c);
                 
