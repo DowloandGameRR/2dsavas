@@ -277,9 +277,9 @@
                 scene.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
                 // ============================================
-                // MİNİ MAP (MİNİ HARİTA) AYARLARI 🟢 EKLEDİK
+                // MİNİ MAP (MİNİ HARİTA) AYARLARI 🛠️ DÜZELTİLDİ
                 // ============================================
-                // Sağ üst köşeye 150x150 genişliğinde minik bir kamera ekliyoruz
+                // Mini map kamerasını oluşturuyoruz
                 minimapCamera = scene.cameras.add(window.innerWidth - 170, 20, 150, 150).setZoom(0.07).setName('minimap');
                 minimapCamera.setBackgroundColor('#1a1a2e');
                 minimapCamera.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
@@ -288,7 +288,8 @@
                 const minimapBorder = scene.add.graphics().setScrollFactor(0).setDepth(200);
                 minimapBorder.lineStyle(3, 0xffffff, 0.8);
                 minimapBorder.strokeRect(window.innerWidth - 172, 18, 154, 154);
-                // Kenarlığın mini map kamerasında görünmesini engelliyoruz (Sadece ana ekranda dursun)
+                
+                // 🛠️ FIX: Kenarlığın mini harita içerisinde iç içe sonsuz döngüye girmesini engelliyoruz
                 minimapCamera.ignore(minimapBorder);
 
                 // Input ayarları
@@ -333,7 +334,7 @@
 
                 // Kamera takip
                 scene.cameras.main.startFollow(player, true, 0.1, 0.1);
-                minimapCamera.startFollow(player, true, 0.1, 0.1); // 🟢 Mini map de bizi takip etsin
+                minimapCamera.startFollow(player, true, 0.1, 0.1); // Mini map de bizi takip etsin
 
                 // Oyuncu adı etiketi
                 player.nameText = scene.add.text(startX, startY - 30, playerName, {
@@ -346,6 +347,10 @@
                 // Can barı
                 player.hpBar = scene.add.graphics().setDepth(11);
                 updateHpBar(player);
+
+                // 🛠️ FIX: Mini map kamerasında yazıların ve can barlarının devasa görünmesini engelleyelim
+                minimapCamera.ignore(player.nameText);
+                minimapCamera.ignore(player.hpBar);
 
                 // Firebase'e oyuncu ekle
                 window.gameSet(playerRef, {
@@ -410,6 +415,10 @@
                             otherPlayer.targetX = data.x;
                             otherPlayer.targetY = data.y;
                             otherPlayer.targetAngle = data.angle || 0;
+
+                            // 🛠️ FIX: Yeni eklenen düşmanların UI elemanlarını da mini map'ten gizle
+                            minimapCamera.ignore(otherPlayer.nameText);
+                            minimapCamera.ignore(otherPlayer.hpBar);
 
                             otherPlayers[uid] = otherPlayer;
                         } else {
