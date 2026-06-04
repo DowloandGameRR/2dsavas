@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Online Savaş Oyunu</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+    <!-- Firebase SDK v9+ (Modüler) -->
+    <script type="module">
+        // ============================================
+        // 1. FIREBASE KONFİGÜRASYONU
+        // ============================================
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-analytics.js";
+        import { 
+            getDatabase, 
+            ref, 
+            set, 
+            onValue, 
+            onDisconnect, 
+            remove,
+            update,
+            push,
+            child,
+            get
+        } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-database.js";
+        import { 
+            getAuth, 
+            signInAnonymously,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
+
+        // 🔴 SENİN FIREBASE PROJE BİLGİLERİN
+        const firebaseConfig = {
+            apiKey: "AIzaSyDjTSEE1FQmQl-qqwFR-XOgb01xEMceCpc",
+            authDomain: "game-ad0bb.firebaseapp.com",
+            databaseURL: "https://game-ad0bb-default-rtdb.firebaseio.com",
+            projectId: "game-ad0bb",
+            storageBucket: "game-ad0bb.firebasestorage.app",
+            messagingSenderId: "271751730777",
+            appId: "1:271751730777:web:3589b14dae4242bf6a8348",
+            measurementId: "G-5PPLWRVXR6"
+        };
+
+        // Firebase'i başlat
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const db = getDatabase(app);
+        const auth = getAuth(app);
+
+        // ============================================
+        // 2. GLOBAL DEĞİŞKENLER VE OYUN DURUMU
+        // ============================================
+        window.gameDB = db;
+        window.gameAuth = auth;
+        window.gameRef = ref;
+        window.gameOnValue = onValue;
+        window.gameSet = set;
+        window.gameUpdate = update;
+        window.gameRemove = remove;
+        window.gameOnDisconnect = onDisconnect;
+        window.gamePush = push;
+        window.gameChild = child;
+        window.gameGet = get;
+
+        // ============================================
+        // 3. KİMLİK DOĞRULAMA (AUTHENTICATION)
+        // ============================================
+        
+        // Misafir girişi (Anonim)
+        window.signInGuest = async function() {
+            try {
+                const result = await signInAnonymously(auth);
+                console.log("Misafir girişi başarılı:", result.user.uid);
+                return result.user;
+            } catch (error) {
+                console.error("Giriş hatası:", error);
+                alert("Giriş yapılamadı: " + error.message);
+            }
+        };
+
+        // E-posta ile kayıt
+        window.signUpEmail = async function(email, password) {
+            try {
+                const result = await createUserWithEmailAndPassword(auth, email, password);
+                console.log("Kayıt başarılı:", result.user.uid);
+                return result.user;
+            } catch (error) {
+                console.error("Kayıt hatası:", error);
+                alert("Kayıt hatası: " + error.message);
+            }
+        };
+
+        // E-posta ile giriş
+        window.signInEmail = async function(email, password) {
+            try {
+                const result = await signInWithEmailAndPassword(auth, email, password);
+                console.log("Giriş başarılı:", result.user.uid);
+                return result.user;
+            } catch (error) {
+                console.error("Giriş hatası:", error);
+                alert("Giriş hatası: " + error.message);
+            }
+        };
+
+        // Auth durumunu dinle
+        window.onAuthStateChanged = onAuthStateChanged;
+    </script>
+</head>
+<body style="margin: 0; padding: 0; background: #1a1a2e; overflow: hidden; font-family: 'Segoe UI', sans-serif;">
+    
+    <!-- Giriş Ekranı -->
+    <div id="login-screen" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+         background: rgba(255,255,255,0.1); padding: 40px; border-radius: 20px; text-align: center; color: white; z-index: 1000;">
+        <h1>⚔️ 2D Savaş Arenası</h1>
+        <div style="margin: 20px 0;">
+            <input type="text" id="player-name" placeholder="Oyuncu Adın" maxlength="15" 
+                   style="padding: 10px; font-size: 16px; border-radius: 8px; border: none; width: 200px;">
+        </div>
+        <button onclick="startGame('guest')" 
+                style="padding: 12px 30px; font-size: 16px; background: #e94560; color: white; border: none; 
+                       border-radius: 8px; cursor: pointer; margin: 5px;">Misafir Olarak Giriş Yap</button>
+        <div style="margin-top: 20px; font-size: 12px; color: #aaa;">
+            <p>veya</p>
+            <input type="email" id="email" placeholder="E-posta" style="padding: 8px; margin: 5px; border-radius: 5px; border: none;"><br>
+            <input type="password" id="password" placeholder="Şifre" style="padding: 8px; margin: 5px; border-radius: 5px; border: none;"><br>
+            <button onclick="startGame('email')" style="padding: 8px 20px; margin: 5px; background: #0f3460; color: white; border: none; border-radius: 5px; cursor: pointer;">Giriş Yap</button>
+            <button onclick="startGame('register')" style="padding: 8px 20px; margin: 5px; background: #533483; color: white; border: none; border-radius: 5px; cursor: pointer;">Kayıt Ol</button>
+        </div>
+    </div>
+
+    <!-- Oyun Konteyneri -->
+    <div id="game-container" style="display: none;"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-overlay" style="display: none; position: absolute; top: 10px; left: 10px; color: white; z-index: 100; pointer-events: none;">
+        <div style="background: rgba(0,0,0,0.7); padding: 15px; border-radius: 10px;">
+            <div>❤️ Can: <span id="hp-display">100</span></div>
+            <div>🏆 Skor: <span id="score-display">0</span></div>
+            <div>👥 Oyuncu: <span id="player-name-display">-</span></div>
+        </div>
+        <div style="margin-top: 10px; font-size: 12px; color: #aaa;">
+            WASD / Yön Tuşları: Hareket | Mouse Sol Tık: Ateş Et
+        </div>
+    </div>
+
+    <script type="module">
+        // ============================================
+        // 4. OYUN BAŞLATMA VE AUTH İŞLEMLERİ
+        // ============================================
+        
+        let currentUser = null;
+        let playerName = "Oyuncu";
+
+        window.startGame = async function(type) {
+            playerName = document.getElementById('player-name').value || "Misafir";
+            
+            if (type === 'guest') {
+                currentUser = await window.signInGuest();
+            } else if (type === 'email') {
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+                currentUser = await window.signInEmail(email, password);
+            } else if (type === 'register') {
+                const email = document.getElementById('email').value;
+                const password = document.getElementById('password').value;
+                currentUser = await window.signUpEmail(email, password);
+            }
+
+            if (currentUser) {
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('game-container').style.display = 'block';
+                document.getElementById('ui-overlay').style.display = 'block';
+                document.getElementById('player-name-display').textContent = playerName;
+                
+                // Phaser oyununu başlat
+                initGame(currentUser.uid);
+            }
+        };
+
+        // ============================================
+        // 5. PHASER 3 OYUN SAHNESİ
+        // ============================================
+        
+        function initGame(userId) {
+            const config = {
+                type: Phaser.AUTO,
+                width: window.innerWidth,
+                height: window.innerHeight,
+                parent: 'game-container',
+                backgroundColor: '#16213e',
+                physics: {
+                    default: 'arcade',
+                    arcade: {
+                        gravity: { y: 0 }, // Yerçekimi yok (top-down)
+                        debug: false
+                    }
+                },
+                scene: {
+                    preload: preload,
+                    create: create,
+                    update: update
+                }
+            };
+
+            const game = new Phaser.Game(config);
+
+            // Oyun durumu
+            let player; // Yerel oyuncu sprite'ı
+            let otherPlayers = {}; // Diğer oyuncular {uid: sprite}
+            let bullets; // Mermi grubu
+            let cursors; // Klavye input
+            let wasd; // WASD input
+            let mousePointer; // Fare pozisyonu
+            let playerRef; // Firebase referansı
+            let playersRef; // Tüm oyuncular referansı
+            let bulletsRef; // Mermiler referansı
+            let lastFired = 0; // Son ateş zamanı
+            const FIRE_RATE = 200; // Mermi atış hızı (ms)
+            const PLAYER_SPEED = 300; // Oyuncu hızı
+            const BULLET_SPEED = 800; // Mermi hızı
+            const WORLD_WIDTH = 2000; // Dünya genişliği
+            const WORLD_HEIGHT = 2000; // Dünya yüksekliği
+            const RESPAWN_TIME = 3000; // Yeniden doğuş süresi
+
+            function preload() {
+                // Basit grafikler oluştur (asset yoksa)
+                // Oyuncu - Mavi kare
+                const playerGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+                playerGraphics.fillStyle(0x3498db, 1);
+                playerGraphics.fillRect(0, 0, 40, 40);
+                playerGraphics.lineStyle(2, 0xffffff, 1);
+                playerGraphics.strokeRect(0, 0, 40, 40);
+                // Silah göstergesi
+                playerGraphics.fillStyle(0x2c3e50, 1);
+                playerGraphics.fillRect(35, 15, 15, 10);
+                playerGraphics.generateTexture('player', 50, 40);
+
+                // Düşman - Kırmızı kare
+                const enemyGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+                enemyGraphics.fillStyle(0xe74c3c, 1);
+                enemyGraphics.fillRect(0, 0, 40, 40);
+                enemyGraphics.lineStyle(2, 0xffffff, 1);
+                enemyGraphics.strokeRect(0, 0, 40, 40);
+                enemyGraphics.fillStyle(0x2c3e50, 1);
+                enemyGraphics.fillRect(35, 15, 15, 10);
+                enemyGraphics.generateTexture('enemy', 50, 40);
+
+                // Mermi - Sarı daire
+                const bulletGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+                bulletGraphics.fillStyle(0xf1c40f, 1);
+                bulletGraphics.fillCircle(5, 5, 5);
+                bulletGraphics.generateTexture('bullet', 10, 10);
+
+                // Zemin deseni
+                const groundGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+                groundGraphics.fillStyle(0x1a1a2e, 1);
+                groundGraphics.fillRect(0, 0, 100, 100);
+                groundGraphics.lineStyle(1, 0x0f3460, 0.5);
+                groundGraphics.strokeRect(0, 0, 100, 100);
+                groundGraphics.generateTexture('ground', 100, 100);
+            }
+
+            function create() {
+                const scene = this;
+
+                // Zemin oluştur (tile)
+                for (let x = 0; x < WORLD_WIDTH; x += 100) {
+                    for (let y = 0; y < WORLD_HEIGHT; y += 100) {
+                        scene.add.image(x + 50, y + 50, 'ground');
+                    }
+                }
+
+                // Dünya sınırlarını ayarla
+                scene.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+                // Kamera ayarları
+                scene.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+                // Input ayarları
+                cursors = scene.input.keyboard.createCursorKeys();
+                wasd = scene.input.keyboard.addKeys({
+                    up: Phaser.Input.Keyboard.KeyCodes.W,
+                    down: Phaser.Input.Keyboard.KeyCodes.S,
+                    left: Phaser.Input.Keyboard.KeyCodes.A,
+                    right: Phaser.Input.Keyboard.KeyCodes.D
+                });
+                mousePointer = scene.input.activePointer;
+
+                // Mermi grubu oluştur
+                bullets = scene.physics.add.group({
+                    classType: Phaser.Physics.Arcade.Image,
+                    defaultKey: 'bullet',
+                    maxSize: 100,
+                    runChildUpdate: true
+                });
+
+                // ============================================
+                // 6. FIREBASE REALTIME DATABASE BAĞLANTISI
+                // ============================================
+
+                // Oyuncu referansı
+                playerRef = window.gameRef(window.gameDB, `players/${userId}`);
+                playersRef = window.gameRef(window.gameDB, 'players');
+                bulletsRef = window.gameRef(window.gameDB, 'bullets');
+
+                // Başlangıç pozisyonu (rastgele)
+                const startX = Phaser.Math.Between(100, WORLD_WIDTH - 100);
+                const startY = Phaser.Math.Between(100, WORLD_HEIGHT - 100);
+
+                // Yerel oyuncuyu oluştur
+                player = scene.physics.add.sprite(startX, startY, 'player');
+                player.setCollideWorldBounds(true);
+                player.setDepth(10);
+                player.hp = 100;
+                player.score = 0;
+                player.name = playerName;
+                player.uid = userId;
+
+                // Kamera takip
+                scene.cameras.main.startFollow(player, true, 0.1, 0.1);
+
+                // Oyuncu adı etiketi
+                player.nameText = scene.add.text(startX, startY - 30, playerName, {
+                    fontSize: '14px',
+                    fill: '#ffffff',
+                    stroke: '#000000',
+                    strokeThickness: 3
+                }).setOrigin(0.5).setDepth(11);
+
+                // Can barı
+                player.hpBar = scene.add.graphics().setDepth(11);
+                updateHpBar(player);
+
+                // Firebase'e oyuncu ekle
+                window.gameSet(playerRef, {
+                    x: startX,
+                    y: startY,
+                    hp: 100,
+                    score: 0,
+                    angle: 0,
+                    name: playerName,
+                    lastUpdate: Date.now()
+                });
+
+                // 🔴 ÖNEMLİ: onDisconnect ile otomatik temizlik
+                // Tarayıcı kapandığında/sekme kapatıldığında oyuncuyu sil
+                window.gameOnDisconnect(playerRef).remove();
+
+                // ============================================
+                // 7. DİĞER OYUNCULARI DİNLE (REALTIME)
+                // ============================================
+
+                window.gameOnValue(playersRef, (snapshot) => {
+                    const playersData = snapshot.val();
+                    
+                    if (!playersData) return;
+
+                    Object.keys(playersData).forEach((uid) => {
+                        // Kendimizi atla
+                        if (uid === userId) {
+                            // HP senkronizasyonu (hasar aldığında)
+                            const data = playersData[uid];
+                            if (data.hp !== player.hp && data.hp < player.hp) {
+                                player.hp = data.hp;
+                                updateHpBar(player);
+                                document.getElementById('hp-display').textContent = Math.max(0, player.hp);
+                            }
+                            if (data.score !== player.score) {
+                                player.score = data.score;
+                                document.getElementById('score-display').textContent = player.score;
+                            }
+                            return;
+                        }
+
+                        const data = playersData[uid];
+
+                        // Yeni oyuncu mu?
+                        if (!otherPlayers[uid]) {
+                            // Yeni oyuncu sprite'ı oluştur
+                            const otherPlayer = scene.physics.add.sprite(data.x, data.y, 'enemy');
+                            otherPlayer.setDepth(10);
+                            otherPlayer.nameText = scene.add.text(data.x, data.y - 30, data.name || "Oyuncu", {
+                                fontSize: '14px',
+                                fill: '#ff6b6b',
+                                stroke: '#000000',
+                                strokeThickness: 3
+                            }).setOrigin(0.5).setDepth(11);
+                            otherPlayer.hpBar = scene.add.graphics().setDepth(11);
+                            otherPlayer.hp = data.hp;
+                            otherPlayers[uid] = otherPlayer;
+                        }
+
+                        // Mevcut oyuncuyu güncelle (LERP ile yumuşak geçiş)
+                        const otherPlayer = otherPlayers[uid];
+                        
+                        // 🟢 LAG YÖNETİMİ: Doğrudan atama yerine interpolasyon
+                        // Hedef pozisyonu kaydet, update() içinde yumuşak geçiş yap
+                        otherPlayer.targetX = data.x;
+                        otherPlayer.targetY = data.y;
+                        otherPlayer.targetAngle = data.angle;
+                        otherPlayer.hp = data.hp;
+
+                        // Can barını güncelle
+                        updateHpBar(otherPlayer);
+
+                        // Ölen oyuncuyu gizle
+                        if (data.hp <= 0) {
+                            otherPlayer.setVisible(false);
+                            otherPlayer.nameText.setVisible(false);
+                            otherPlayer.hpBar.setVisible(false);
+                        } else {
+                            otherPlayer.setVisible(true);
+                            otherPlayer.nameText.setVisible(true);
+                            otherPlayer.hpBar.setVisible(true);
+                        }
+                    });
+
+                    // Ayrılan oyuncuları temizle
+                    Object.keys(otherPlayers).forEach((uid) => {
+                        if (!playersData[uid]) {
+                            otherPlayers[uid].destroy();
+                            otherPlayers[uid].nameText.destroy();
+                            otherPlayers[uid].hpBar.destroy();
+                            delete otherPlayers[uid];
+                        }
+                    });
+                });
+
+                // ============================================
+                // 8. MERMİ SENKRONİZASYONU
+                // ============================================
+
+                window.gameOnValue(bulletsRef, (snapshot) => {
+                    const bulletsData = snapshot.val();
+                    if (!bulletsData) return;
+
+                    // Mermi senkronizasyonu - sadece diğer oyuncuların mermileri
+                    Object.keys(bulletsData).forEach((bulletId) => {
+                        const data = bulletsData[bulletId];
+                        
+                        // Kendi mermilerimizi atla (zaten yerelde oluşturduk)
+                        if (data.owner === userId) return;
+
+                        // Mermi çok eski mi? (5 saniyeden eski)
+                        if (Date.now() - data.timestamp > 5000) {
+                            window.gameRemove(window.gameRef(window.gameDB, `bullets/${bulletId}`));
+                            return;
+                        }
+
+                        // Yeni mermi oluştur (diğer oyuncudan gelen)
+                        if (!scene.children.getByName(bulletId)) {
+                            const bullet = scene.physics.add.image(data.x, data.y, 'bullet');
+                            bullet.setName(bulletId);
+                            bullet.setDepth(5);
+                            
+                            // Hız vektörü
+                            const velocity = scene.physics.velocityFromRotation(data.angle, BULLET_SPEED);
+                            bullet.setVelocity(velocity.x, velocity.y);
+                            
+                            // 3 saniye sonra mermiyi sil
+                            scene.time.delayedCall(3000, () => {
+                                if (bullet.active) {
+                                    bullet.destroy();
+                                }
+                            });
+                        }
+                    });
+                });
+
+                // ============================================
+                // 9. ÇARPIŞMA KONTROLLERİ
+                // ============================================
+
+                // Mermi - Diğer Oyuncu çarpışması
+                scene.physics.add.overlap(bullets, player, (bullet, targetPlayer) => {
+                    // Sadece başka oyuncunun mermisi bize zarar versin
+                    if (bullet.owner && bullet.owner !== userId) {
+                        bullet.destroy();
+                        takeDamage(10, bullet.owner);
+                    }
+                });
+
+                // Fare tıklama (ateş etme)
+                scene.input.on('pointerdown', (pointer) => {
+                    if (pointer.leftButtonDown() && player.hp > 0) {
+                        fireBullet(scene, pointer);
+                    }
+                });
+            }
+
+            function update(time, delta) {
+                if (!player || player.hp <= 0) return;
+
+                // ============================================
+                // 10. YEREL OYUNCU HAREKETİ
+                // ============================================
+
+                let velocityX = 0;
+                let velocityY = 0;
+
+                // Yön tuşları veya WASD
+                if (cursors.left.isDown || wasd.left.isDown) velocityX = -PLAYER_SPEED;
+                if (cursors.right.isDown || wasd.right.isDown) velocityX = PLAYER_SPEED;
+                if (cursors.up.isDown || wasd.up.isDown) velocityY = -PLAYER_SPEED;
+                if (cursors.down.isDown || wasd.down.isDown) velocityY = PLAYER_SPEED;
+
+                // Çapraz hareket hızını normalize et
+                if (velocityX !== 0 && velocityY !== 0) {
+                    velocityX *= 0.707;
+                    velocityY *= 0.707;
+                }
+
+                player.setVelocity(velocityX, velocityY);
+
+                // Fareye doğru dön
+                const angle = Phaser.Math.Angle.Between(
+                    player.x, player.y,
+                    mousePointer.worldX, mousePointer.worldY
+                );
+                player.setRotation(angle);
+
+                // İsim ve can barını takip et
+                player.nameText.setPosition(player.x, player.y - 30);
+                updateHpBar(player);
+
+                // ============================================
+                // 11. FIREBASE'E POZİSYON GÖNDER (THROTTLE)
+                // ============================================
+                
+                // 🟢 LAG YÖNETİMİ: Her frame gönderme, 50ms'de bir gönder
+                if (!player.lastUpdate || time - player.lastUpdate > 50) {
+                    window.gameUpdate(playerRef, {
+                        x: Math.round(player.x),
+                        y: Math.round(player.y),
+                        angle: parseFloat(angle.toFixed(2)),
+                        hp: player.hp,
+                        score: player.score,
+                        name: playerName,
+                        lastUpdate: Date.now()
+                    });
+                    player.lastUpdate = time;
+                }
+
+                // ============================================
+                // 12. DİĞER OYUNCULARI YUMUŞAK GÜNCELLE (LERP)
+                // ============================================
+
+                Object.values(otherPlayers).forEach((other) => {
+                    if (other.targetX !== undefined && other.hp > 0) {
+                        // Linear Interpolation (Lerp) ile yumuşak geçiş
+                        // 0.2 faktörü: %20'sini hedefe doğru hareket ettir
+                        other.x += (other.targetX - other.x) * 0.2;
+                        other.y += (other.targetY - other.y) * 0.2;
+                        
+                        // Açıyı yumuşak güncelle
+                        if (other.targetAngle !== undefined) {
+                            other.rotation = Phaser.Math.Angle.RotateTo(
+                                other.rotation, 
+                                other.targetAngle, 
+                                0.3
+                            );
+                        }
+
+                        // İsim ve can barını takip et
+                        other.nameText.setPosition(other.x, other.y - 30);
+                        updateHpBar(other);
+                    }
+                });
+
+                // ============================================
+                // 13. MERMİ GÜNCELLEMELERİ
+                // ============================================
+
+                bullets.children.each((bullet) => {
+                    if (bullet.active) {
+                        // Dünya sınırları dışına çıkan mermileri sil
+                        if (bullet.x < 0 || bullet.x > WORLD_WIDTH || 
+                            bullet.y < 0 || bullet.y > WORLD_HEIGHT) {
+                            bullet.destroy();
+                        }
+                    }
+                });
+            }
+
+            // ============================================
+            // 14. YARDIMCI FONKSİYONLAR
+            // ============================================
+
+            function fireBullet(scene, pointer) {
+                const now = Date.now();
+                if (now - lastFired < FIRE_RATE) return;
+                lastFired = now;
+
+                // Mermi oluştur
+                const bullet = bullets.get(player.x, player.y, 'bullet');
+                if (!bullet) return;
+
+                bullet.setActive(true);
+                bullet.setVisible(true);
+                bullet.owner = userId;
+
+                // Fareye doğru ateş et
+                const angle = Phaser.Math.Angle.Between(
+                    player.x, player.y,
+                    pointer.worldX, pointer.worldY
+                );
+
+                const velocity = scene.physics.velocityFromRotation(angle, BULLET_SPEED);
+                bullet.setVelocity(velocity.x, velocity.y);
+                bullet.setRotation(angle);
+
+                // Firebase'e mermi bilgisi gönder (diğer oyuncular görsün)
+                const bulletId = `bullet_${userId}_${now}`;
+                window.gameSet(window.gameRef(window.gameDB, `bullets/${bulletId}`), {
+                    x: Math.round(player.x),
+                    y: Math.round(player.y),
+                    angle: parseFloat(angle.toFixed(2)),
+                    owner: userId,
+                    timestamp: now
+                });
+
+                // 3 saniye sonra mermiyi veritabanından sil
+                setTimeout(() => {
+                    window.gameRemove(window.gameRef(window.gameDB, `bullets/${bulletId}`));
+                }, 3000);
+            }
+
+            function takeDamage(amount, attackerId) {
+                player.hp -= amount;
+                if (player.hp < 0) player.hp = 0;
+
+                updateHpBar(player);
+                document.getElementById('hp-display').textContent = player.hp;
+
+                // Firebase'e hasar bildir
+                window.gameUpdate(playerRef, { hp: player.hp });
+
+                // Ekran sarsıntısı efekti
+                scene.cameras.main.shake(200, 0.01);
+
+                // Kan efekti (kırmızı overlay)
+                const damageOverlay = scene.add.rectangle(
+                    scene.cameras.main.centerX, 
+                    scene.cameras.main.centerY,
+                    scene.cameras.main.width,
+                    scene.cameras.main.height,
+                    0xff0000,
+                    0.3
+                ).setScrollFactor(0).setDepth(100);
+                
+                scene.time.delayedCall(100, () => damageOverlay.destroy());
+
+                // Ölüm kontrolü
+                if (player.hp <= 0) {
+                    die();
+                }
+            }
+
+            function die() {
+                player.setVisible(false);
+                player.nameText.setVisible(false);
+                player.hpBar.setVisible(false);
+                player.setVelocity(0, 0);
+
+                // Firebase'e ölüm bildir
+                window.gameUpdate(playerRef, { hp: 0 });
+
+                // Ölüm mesajı
+                const deathText = scene.add.text(
+                    scene.cameras.main.centerX,
+                    scene.cameras.main.centerY,
+                    'ÖLDÜN! Yeniden doğuyorsun...',
+                    { fontSize: '32px', fill: '#e74c3c', stroke: '#000', strokeThickness: 4 }
+                ).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+
+                // Yeniden doğuş
+                scene.time.delayedCall(RESPAWN_TIME, () => {
+                    respawn();
+                    deathText.destroy();
+                });
+            }
+
+            function respawn() {
+                const newX = Phaser.Math.Between(100, WORLD_WIDTH - 100);
+                const newY = Phaser.Math.Between(100, WORLD_HEIGHT - 100);
+
+                player.setPosition(newX, newY);
+                player.hp = 100;
+                player.setVisible(true);
+                player.nameText.setVisible(true);
+                player.hpBar.setVisible(true);
+
+                updateHpBar(player);
+                document.getElementById('hp-display').textContent = 100;
+
+                // Firebase'e yeniden doğuş bildir
+                window.gameUpdate(playerRef, {
+                    x: newX,
+                    y: newY,
+                    hp: 100
+                });
+            }
+
+            function updateHpBar(entity) {
+                if (!entity.hpBar) return;
+                
+                entity.hpBar.clear();
+                
+                // Arka plan (gri)
+                entity.hpBar.fillStyle(0x000000, 0.5);
+                entity.hpBar.fillRect(entity.x - 20, entity.y - 50, 40, 6);
+                
+                // Can barı (yeşil -> kırmızı)
+                const hpPercent = Math.max(0, entity.hp / 100);
+                const color = hpPercent > 0.5 ? 0x2ecc71 : (hpPercent > 0.25 ? 0xf1c40f : 0xe74c3c);
+                
+                entity.hpBar.fillStyle(color, 1);
+                entity.hpBar.fillRect(entity.x - 20, entity.y - 50, 40 * hpPercent, 6);
+            }
+        }
+    </script>
+</body>
+</html>
